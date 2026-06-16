@@ -1,0 +1,1 @@
+{"name":"AI Assistant Interface","description":"An elegant, dark-themed AI chat interface featuring a sidebar, message view, and input container.","requestFramePermissions":["microphone"],"majorCapabilities":["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]}
