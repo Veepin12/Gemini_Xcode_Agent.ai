@@ -1,31 +1,34 @@
-import { initializeApp } from "firebase/app";
-import {
-  getFirestore,
-  collection,
-  doc,
-  setDoc,
-  getDoc,
-  getDocs,
-  query,
-  where,
-  deleteDoc,
-} from "firebase/firestore";
+import { initializeApp, getApps, cert } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 import crypto from "crypto";
 
-const firebaseConfig = {
-  projectId: "xcode-assist-ui-202606",
-  appId: "1:374185040168:web:981e9f646305b71a6a981d",
-  storageBucket: "xcode-assist-ui-202606.firebasestorage.app",
-  apiKey: "AIzaSyCQ1C5ZW3XUUrPA2avPZEqu3N4XUWOycYc",
-  authDomain: "xcode-assist-ui-202606.firebaseapp.com",
-  messagingSenderId: "374185040168",
-};
+const projectId = process.env.FIREBASE_PROJECT_ID || "xcode-assist-ui-202606";
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+if (getApps().length === 0) {
+  const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (serviceAccountVar) {
+    try {
+      const credential = serviceAccountVar.trim().startsWith("{")
+        ? cert(JSON.parse(serviceAccountVar))
+        : cert(serviceAccountVar);
+      
+      initializeApp({
+        credential,
+        projectId,
+      });
+    } catch (err) {
+      console.warn("Could not load FIREBASE_SERVICE_ACCOUNT credentials, falling back to default:", err);
+      initializeApp({ projectId });
+    }
+  } else {
+    initializeApp({ projectId });
+  }
+}
+
+export const db = getFirestore();
 
 export async function connectDB() {
-  console.log("Firebase/Firestore connection initialized for local server.");
+  console.log(`Firebase Admin SDK initialized. Project ID: ${projectId}`);
 }
 
 export function hashPassword(password: string): string {
@@ -44,23 +47,24 @@ export class User {
   static async findOne({ email }: { email: string }) {
     if (!email) return null;
     const lowerEmail = email.toLowerCase();
-    const docRef = doc(db, "users", lowerEmail);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
+    const docRef = db.collection("users").doc(lowerEmail);
+    const docSnap = await docRef.get();
+    if (docSnap.exists) {
       const data = docSnap.data();
-      return new User({ email: data.email, password: data.password });
+      if (data) {
+        return new User({ email: data.email, password: data.password });
+      }
     }
     return null;
   }
 
   async save() {
     let finalPassword = this.password;
-    // Hash password before saving if it's not already a SHA-256 hash (64 hex characters)
     if (finalPassword.length !== 64) {
       finalPassword = hashPassword(finalPassword);
     }
-    const docRef = doc(db, "users", this.email);
-    await setDoc(docRef, {
+    const docRef = db.collection("users").doc(this.email);
+    await docRef.set({
       email: this.email,
       password: finalPassword,
     });
@@ -88,11 +92,11 @@ class ConversationQuery {
 
   async then(onfulfilled?: (value: any[]) => any, onrejected?: (reason: any) => any) {
     try {
-      const q = query(
-        collection(db, "conversations"),
-        where("email", "==", this.email)
-      );
-      const querySnapshot = await getDocs(q);
+      const querySnapshot = await db
+        .collection("conversations")
+        .where("email", "==", this.email)
+        .get();
+
       const results: any[] = [];
       querySnapshot.forEach((doc) => {
         results.push(doc.data());
@@ -130,19 +134,16 @@ export class Conversation {
     update: any,
     options?: { upsert?: boolean; new?: boolean }
   ) {
-    // Generate a sanitized document ID for Firestore
     const docId = `${filter.email.replace(/[^a-zA-Z0-9]/g, "_")}_${filter.id}`;
-    const docRef = doc(db, "conversations", docId);
-    
-    // Write/update the document
-    await setDoc(docRef, update, { merge: true });
+    const docRef = db.collection("conversations").doc(docId);
+    await docRef.set(update, { merge: true });
     return update;
   }
 
   static async deleteOne(filter: { id: string; email: string }) {
     const docId = `${filter.email.replace(/[^a-zA-Z0-9]/g, "_")}_${filter.id}`;
-    const docRef = doc(db, "conversations", docId);
-    await deleteDoc(docRef);
+    const docRef = db.collection("conversations").doc(docId);
+    await docRef.delete();
     return { deletedCount: 1 };
   }
 }
